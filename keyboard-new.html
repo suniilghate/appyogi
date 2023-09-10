@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AppYogi PHP / Ajax Assignment</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <style>
+        body {
+            font-family: "Helvetica", Sans-Serif;
+            font-size: medium;
+        }
+
+        .keyboard-key {
+            width: 50px;
+            height: 50px;
+            border: 1px solid #000;
+            margin: 5px;
+            background-color: 'white';
+            text-align: center;
+            line-height: 50px;
+        }
+        
+        button {
+            align-items: center;
+        }
+
+        .accessstatus {
+            padding-top: 10px;
+        }
+
+        #keyboard {
+            display: grid;
+            grid-template-rows: repeat(2, 50px);
+            grid-template-columns: repeat(5, 50px);
+            gap: 0px;
+            grborder: 1px solid #000;
+            border-radius: 5px;
+            padding-bottom: 30px;
+        }
+
+        .container {
+            font-family: arial;
+            font-size: 12px;
+            margin: 25px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="child">
+            <h1>AppYogi PHP / Ajax Assignment</h1>
+            <div id="keyboard"></div>
+            <button onclick="acquireControl()" id="keyboard-cntrl-btn">Take Control</button>
+            <div class="accessstatus">Status : No user has control now</div>
+        </div>
+    </div>
+    
+    <script>
+        const queryString = window.location.search;
+        const urlParams = new URLSearchParams(queryString);
+        let userId = urlParams.get("user");
+        localStorage.setItem('userId', JSON.stringify(userId));
+        //localStorage.setItem('userKeys', JSON.stringify([{"user":1,"keys":[5,6]},{"user":2,"keys":[8,10]}]));
+        //[{"user":1,"keys":{5,6}},{"user":2,"keys":{8,10}}]
+        const d = new Date();
+        let seconds = d.getSeconds();
+        let timeoutVar = seconds;
+        let userAccessInfo = {"user":0,"keyboardstate":0,"timeout":timeoutVar};
+        localStorage.setItem("userAccess", JSON.stringify(userAccessInfo));
+        localStorage.setItem('userKeys', JSON.stringify([{"user":1,"keys":[]},{"user":2,"keys":[]}]))
+
+        // Initialize the keyboard
+        function initKeyboard() {
+            const keyboard = $('#keyboard');
+            //const keyboardState = keyboard.data('state') || 0;
+            //keyboard.data('visiblity', 'disable');
+
+            const existingDiv = keyboard.find('.keyboard-key');
+            if (existingDiv.length) {
+                // If the div exists, empty the keyboard divs and re-append a new div
+                keyboard.empty();
+            }    
+            const userKeys = JSON.parse(localStorage.getItem('userKeys'));
+            
+            for (let i = 1; i <= 10; i++) {
+                let keyColor = (userKeys[0].keys.includes(i)) ? 'red' : (userKeys[1].keys.includes(i)) ? 'yellow' : 'white'; 
+                keyboard.append('<div class="keyboard-key" style="background-color: ' + keyColor + '" onclick="toggleKey('+ i +')">' + i + '</div>');
+            }
+        }
+
+        function acquireControl() {
+            $.post('keyboard.php?user=' + userId, { action: 'acquireControl', keyboardstate: 1, timeout: 0 }, function (data) {
+                getKeyBoardAccess(data);
+            });
+        }
+
+        //Key click and set color
+        function toggleKey(keyIndex){
+            if($('#keyboard').data('visiblity') != "disable"){
+                $.post('keyboard.php?user=' + userId, { action: 'updateKeyboard', key: keyIndex }, function (data) {
+                    allInfo = JSON.parse(data)[0]['userkeyboard'];
+                    //console.log(JSON.parse(data)[1]);
+                    
+                    let userAccessInfo = {"user":0,"keyboardstate":0,"timeout":1};
+                    localStorage.setItem("userAccess", JSON.stringify(userAccessInfo));
+                    if(allInfo.keyboardstate == 1) {
+                        $('#keyboard-cntrl-btn').prop('disabled', true);
+                        $('.accessstatus').text('Status : User ' + allInfo.user + ' has control now');
+                    } else {
+                        $('#keyboard-cntrl-btn').prop('disabled', false);
+                        $('.accessstatus').text('Status : No user has control now');
+                    }
+                    
+                    localStorage.setItem('userKeys', JSON.stringify(JSON.parse(data)[1]['userkeys']));
+
+                });
+            } else {
+                alert("Not accessible");
+            }                
+        }
+    
+        // Initialize the application
+        $('#keyboard').data('visiblity', 'disable');
+        initKeyboard();
+        let pollInterval = setInterval(function() {
+            pollServer();
+        }, 1000);
+
+        function getKeyBoardAccess(userInfo){
+            $('#keyboard-cntrl-btn').prop('disabled', true);
+            $('#keyboard').data('visiblity', 'enable');
+            userInfo = JSON.parse(userInfo)[0]['userkeyboard'];
+            $('.accessstatus').text = 'Status : User ' + userInfo.user + ' has control now';
+            let userAccessInfo = {"user":userInfo.user,"keyboardstate":userInfo.keyboardstate,"timeout":userInfo.timeout};
+            
+            localStorage.setItem("userAccess", JSON.stringify(userAccessInfo));
+            let keyBoardTimer = setInterval(function() {
+                releaseKeyBoardAccess(userAccessInfo, keyBoardTimer);
+            }, 120000); // 120000 milliseconds = 120 seconds,
+        }
+
+        function releaseKeyBoardAccess(userInfo, myInterval = '') {
+            const d = new Date();
+            let seconds = d.getSeconds();
+            let timeoutVar = seconds;
+            
+            $('#keyboard').data('visiblity', 'disable');
+
+            let userAccessInfo = {"user":0,"keyboardstate":0,"timeout":timeoutVar};
+            localStorage.setItem("userAccess", JSON.stringify(userAccessInfo));
+            $.post('keyboard.php?user=0', { action: 'releaseControl', keyboardstate: 0, timeout: 1 });
+            if(myInterval != "")
+                clearInterval(myInterval);
+            
+            $('#keyboard-cntrl-btn').prop('disabled', false);
+        }
+
+        // Periodically poll the server for updates
+        function pollServer() {
+            $.get('keyboard.php?user=' + userId, function (data) {
+                allInfo = JSON.parse(data)[0]['userkeyboard'];
+                //console.log(JSON.parse(data)[1]);
+                
+                let userAccessInfo = {"user":allInfo.user,"keyboardstate":allInfo.keyboardstate,"timeout":allInfo.timeout};
+                localStorage.setItem("userAccess", JSON.stringify(userAccessInfo));
+                if(allInfo.keyboardstate == 1) {
+                    $('#keyboard-cntrl-btn').prop('disabled', true);
+                    $('.accessstatus').text('Status : User ' + allInfo.user + ' has control now');
+                } else {
+                    $('#keyboard-cntrl-btn').prop('disabled', false);
+                    $('.accessstatus').text('Status : No user has control now');
+                }
+                
+                localStorage.setItem('userKeys', JSON.stringify(JSON.parse(data)[1]['userkeys']));
+
+                initKeyboard();
+                setTimeout(pollServer, 10000); // Poll every 5 second
+            });
+        }
+
+        
+    </script>
+</body>
+</html>
